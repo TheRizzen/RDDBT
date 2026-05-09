@@ -1,92 +1,99 @@
 import streamlit as st
 
-st.set_page_config(page_title="DiagBT - Expert Terrain", layout="wide")
+st.set_page_config(page_title="DiagBT - Expert", layout="wide")
 
-st.title("⚡ Diagnostic de Défaut Réseau BT")
-st.write("Saisissez l'intégralité des relevés de la fiche de mesure.")
+st.title("⚡ Diagnostic Expert Réseau BT")
+st.write("Saisissez l'intégralité des mesures relevées sur le terrain.")
 
-# --- SECTION 1 : CONTINUITÉ (BOUCLAGE) ---
-st.header("1️⃣ Test de Continuité (Bouclage en extrémité)")
+# Fonction utilitaire pour convertir les unités
+def to_ohms(val, unit):
+    if unit == "GΩ": return val * 1_000_000_000
+    if unit == "MΩ": return val * 1_000_000
+    if unit == "kΩ": return val * 1_000
+    return val
+
+# --- SECTION 1 : CONTINUITÉ ---
+st.header("1️⃣ Test de Continuité (Bouclage)")
 c1, c2, c3 = st.columns(3)
 with c1:
-    l1n_c = st.number_input("L1 / N (Ω)", key="l1nc", format="%.2f")
-    l1l2_c = st.number_input("L1 / L2 (Ω)", key="l1l2c", format="%.2f")
+    l1n_c = st.number_input("L1 / N (Ω)", value=0.0, step=0.1, key="l1nc")
+    l1l2_c = st.number_input("L1 / L2 (Ω)", value=0.0, step=0.1, key="l1l2c")
 with c2:
-    l2n_c = st.number_input("L2 / N (Ω)", key="l2nc", format="%.2f")
-    l2l3_c = st.number_input("L2 / L3 (Ω)", key="l2l3c", format="%.2f")
+    l2n_c = st.number_input("L2 / N (Ω)", value=0.0, step=0.1, key="l2nc")
+    l2l3_c = st.number_input("L2 / L3 (Ω)", value=0.0, step=0.1, key="l2l3c")
 with c3:
-    l3n_c = st.number_input("L3 / N (Ω)", key="l3nc", format="%.2f")
-    l3l1_c = st.number_input("L3 / L1 (Ω)", key="l3l1c", format="%.2f")
+    l3n_c = st.number_input("L3 / N (Ω)", value=0.0, step=0.1, key="l3nc")
+    l3l1_c = st.number_input("L3 / L1 (Ω)", value=0.0, step=0.1, key="l3l1c")
 
-# --- SECTION 2 : ISOLEMENT (MÉGOHMMÈTRE) ---
-st.header("2️⃣ Mesures d'Isolement")
-st.info("Saisissez les valeurs (ex: 4.8). L'unité par défaut est le MΩ.")
+st.divider()
 
-col_iso1, col_iso2, col_iso3 = st.columns(3)
-with col_iso1:
-    l1n_i = st.number_input("L1 / N", key="l1ni")
-    l1t_i = st.number_input("L1 / Terre", key="l1ti")
-    nt_i = st.number_input("N / Terre", key="nti", help="0 Ω est normal sur ce réseau")
-with col_iso2:
-    l2n_i = st.number_input("L2 / N", key="l2ni")
-    l2t_i = st.number_input("L2 / Terre", key="l2ti")
-    l1l2_i = st.number_input("L1 / L2", key="l1l2i")
-with col_iso3:
-    l3n_i = st.number_input("L3 / N", key="l3ni")
-    l3t_i = st.number_input("L3 / Terre", key="l3ti")
-    l2l3_i = st.number_input("L2 / L3", key="l2l3i")
-    l3l1_i = st.number_input("L3 / L1", key="l3l1i")
+# --- SECTION 2 : ISOLEMENT ET DIÉLECTRIQUE (TABLEAU) ---
+st.header("2️⃣ Isolement & Test Diélectrique")
 
-unit_iso = st.radio("Unité des saisies d'isolement :", ["MΩ", "Ω", "kΩ", "GΩ"], horizontal=True)
+labels = ["L1/N", "L2/N", "L3/N", "L1/L2", "L2/L3", "L3/L1", "L1/T", "L2/T", "L3/T", "N/T"]
+data = {}
 
-# --- SECTION 3 : DIÉLECTRIQUE ---
-st.header("3️⃣ Test Diélectrique (3Uo)")
-st.write("Indiquez s'il y a eu un amorçage pour chaque couple (laisser vide si non testé).")
-dielec_res = st.multiselect("Couples ayant amorcé :", 
-                            ["L1/N", "L2/N", "L3/N", "L1/L2", "L2/L3", "L3/L1", "L1/T", "L2/T", "L3/T"])
-pas_montee = st.checkbox("Pas de montée en tension (Défaut franc)")
-
-# --- BOUTON DE DIAGNOSTIC ---
-if st.button("🚀 LANCER LE DIAGNOSTIC"):
+# Création d'une ligne par mesure pour une précision totale
+for label in labels:
+    col1, col2, col3, col4 = st.columns([2, 1, 2, 2])
+    with col1:
+        val = st.number_input(f"Isolement {label}", value=0.0, key=f"val_{label}")
+    with col2:
+        unit = st.selectbox(f"Unité", ["MΩ", "GΩ", "kΩ", "Ω"], key=f"unit_{label}")
+    with col3:
+        dielec = st.selectbox(f"Diélectrique {label}", ["N.R", "Amorçage", "Pas d'amorçage", "Pas de montée en tension"], key=f"die_{label}")
+    with col4:
+        tension = st.text_input(f"Tension d'amorçage (V/kV)", key=f"tens_{label}", placeholder="Ex: 1.5 kV")
     
-    # 1. Logique de Rupture (Basée sur tes Tests 3 et 4)
-    rupture_neutre = all(v > 1999 for v in [l1n_c, l2n_c, l3n_c]) [cite: 51]
+    data[label] = {
+        "ohms": to_ohms(val, unit),
+        "dielec": dielec,
+        "label": label
+    }
+
+# --- LOGIQUE DE DIAGNOSTIC ---
+if st.button("🚀 GÉNÉRER LE DIAGNOSTIC TECHNIQUE"):
+    
+    # 1. Analyse Rupture (Tests 3 & 4)
+    # On identifie les conducteurs coupés (> 1999 Ohms)
     ruptures = []
-    if l1n_c > 1999: ruptures.append("L1") [cite: 35]
+    if l1n_c > 1999: ruptures.append("L1")
     if l2n_c > 1999: ruptures.append("L2")
     if l3n_c > 1999: ruptures.append("L3")
-    
-    # 2. Identification du couple en défaut (le plus bas en isolement, hors N/T)
-    mesures = {
-        "L1/N": l1n_i, "L2/N": l2n_i, "L3/N": l3n_i,
-        "L1/L2": l1l2_i, "L2/L3": l2l3_i, "L3/L1": l3l1_i,
-        "L1/T": l1t_i, "L2/T": l2t_i, "L3/T": l3t_i
-    }
-    couple_defaut = min(mesures, key=mesures.get)
-    val_defaut = mesures[couple_defaut]
+    rupture_neutre = all(v > 1999 for v in [l1n_c, l2n_c, l3n_c])
+
+    # 2. Identification du défaut d'isolement (le plus bas, hors N/T)
+    iso_mesures = {k: v for k, v in data.items() if k != "N/T"}
+    pire_couple = min(iso_mesures, key=lambda k: iso_mesures[k]["ohms"])
+    val_pire = iso_mesures[pire_couple]["ohms"]
+    statut_dielec = data[pire_couple]["dielec"]
 
     st.divider()
-    
-    # AFFICHAGE DES RÉSULTATS
+    st.subheader("📋 Rapport de Préconisation")
+
+    # CAS A : Rupture de Neutre (Sécurité absolue)
     if rupture_neutre:
-        st.error("🚨 ALERTE : RUPTURE DE NEUTRE DÉTECTÉE") [cite: 51]
-        st.warning("⚠️ MODE CHOC INTERDIT. Risque de surtension chez les abonnés.")
-        st.info("🛠️ MÉTHODE : Échométrie comparative uniquement.")
-    
+        st.error("🚨 DÉFAUT : RUPTURE DE NEUTRE")
+        st.warning("⚠️ MODE CHOC INTERDIT : Risque de destruction des équipements clients (survoltage).")
+        st.info("🛠️ ACTION : Localisation par Échométrie comparative uniquement.")
+
+    # CAS B : Rupture de Phase (Test 4)
     elif len(ruptures) > 0:
-        st.error(f"🚨 RUPTURE DE CONDUCTEUR DÉTECTÉE : {', '.join(ruptures)}") [cite: 35]
-        if any(couple_defaut.startswith(r) for r in ruptures) and len(dielec_res) > 0:
-            st.success("✅ Amorçage sur conducteur rompu (Neutre périphérique) : Choc possible avec BOUCLAGE.") [cite: 35]
-        st.info("🛠️ MÉTHODE : Échométrie directe.")
+        st.error(f"🚨 DÉFAUT : RUPTURE DE CONDUCTEUR ({', '.join(ruptures)})")
+        if statut_dielec == "Amorçage":
+            st.success("✅ Amorçage détecté : Le conducteur rompu touche le neutre périphérique. CHOC POSSIBLE AVEC BOUCLAGE.")
+        st.info("🛠️ ACTION : Échométrie directe pour trouver la cassure.")
 
-    elif val_defaut <= 10 and unit_iso == "Ω":
-        st.error(f"🚨 COURT-CIRCUIT FRANC détecté sur {couple_defaut} ({val_defaut} Ω)") [cite: 15, 69]
-        st.warning("⚠️ CHOC INEFFICACE (Pas d'assemblage).") [cite: 15]
-        st.info("🛠️ MÉTHODE : Échométrie directe + Fréquences audibles (RD8000).") [cite: 17, 71]
+    # CAS C : Défaut Franc (Test 1 & 5)
+    elif val_pire <= 10:
+        st.error(f"🚨 DÉFAUT : COURT-CIRCUIT FRANC sur {pire_couple} ({val_pire} Ω)")
+        st.warning("⚠️ CHOC INEFFICACE : Pas d'arc électrique (défaut métallique).")
+        st.info("🛠️ ACTION : Localisation au RD8000 (Fréquences audibles).")
 
+    # CAS D : Défaut Résistant / Éclateur (Test 2 & 6)
     else:
-        st.error(f"🚨 DÉFAUT D'ISOLEMENT RÉSISTANT sur {couple_defaut}")
-        if couple_defaut in dielec_res or len(dielec_res) > 0:
-            st.success("✅ MÉTHODE : Réflexion sur Arc (ARM) + Ondes de Choc.") [cite: 15, 17]
+        st.error(f"🚨 DÉFAUT : ISOLEMENT RÉSISTANT sur {pire_couple}")
+        if statut_dielec == "Amorçage":
+            st.success("✅ MÉTHODE : Réflexion sur Arc (ARM) + Ondes de Choc (Le défaut claque).")
         else:
-            st.info("🛠️ MÉTHODE : Échométrie directe (si < 150Ω) ou ARM.")
+            st.info("🛠️ MÉTHODE : Échométrie directe (si < 150Ω) ou recherche d'amorçage à plus haute tension.")
