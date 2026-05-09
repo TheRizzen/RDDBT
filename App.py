@@ -3,10 +3,11 @@ import streamlit as st
 st.set_page_config(page_title="DiagBT - Expert Réseau", layout="wide")
 
 st.title("⚡ Diagnostic Expert Réseau BT")
-st.write("Saisissez l'intégralité des mesures relevées sur le terrain.")
+st.write("Saisissez les mesures. Les cases sont vides par défaut pour faciliter la saisie.")
 
 # Fonction de conversion pour l'isolement
 def to_ohms(val, unit):
+    if val is None: return None
     if unit == "GΩ": return val * 1_000_000_000
     if unit == "MΩ": return val * 1_000_000
     if unit == "kΩ": return val * 1_000
@@ -14,7 +15,7 @@ def to_ohms(val, unit):
 
 # --- SECTION 1 : CONTINUITÉ ---
 st.header("1️⃣ Test de Continuité (Bouclage)")
-st.info("Indiquez si la boucle est passante (Valeur en Ω) ou coupée (Infinie).")
+st.info("Indiquez si la boucle est passante (Ω) ou coupée (Infinie).")
 
 c_labels = ["L1/N", "L2/N", "L3/N", "L1/L2", "L2/L3", "L3/L1"]
 cont_data = {}
@@ -22,12 +23,13 @@ cont_data = {}
 cols = st.columns(3)
 for i, label in enumerate(c_labels):
     with cols[i % 3]:
+        # On utilise un bouton radio pour définir l'état
         choice = st.radio(f"État {label}", ["Valeur (Ω)", "Infinie"], key=f"choice_{label}", horizontal=True)
         if choice == "Valeur (Ω)":
-            val = st.number_input(f"Résistance {label}", min_value=0.0, format="%.2f", key=f"val_c_{label}")
-            cont_data[label] = val
+            # value=None permet d'avoir une case vide au départ
+            val_c = st.number_input(f"Résistance {label}", value=None, format="%.2f", key=f"val_c_{label}", placeholder="Tapez ici...")
+            cont_data[label] = val_c if val_c is not None else 0.0
         else:
-            st.write(f"📈 {label} : **Coupé**")
             cont_data[label] = float('inf')
 
 st.divider()
@@ -40,10 +42,11 @@ iso_results = {}
 for label in labels_iso:
     col1, col2 = st.columns([3, 1])
     with col1:
-        v = st.number_input(f"Isolement {label}", value=0.0, key=f"iso_v_{label}")
+        v = st.number_input(f"Isolement {label}", value=None, key=f"iso_v_{label}", placeholder="Valeur...")
     with col2:
         u = st.selectbox(f"Unité {label}", ["MΩ", "GΩ", "kΩ", "Ω"], key=f"iso_u_{label}")
-    iso_results[label] = to_ohms(v, u)
+    # Si vide, on considère une valeur infinie ou très haute pour ne pas fausser le diag
+    iso_results[label] = to_ohms(v, u) if v is not None else 1_000_000_000_000
 
 st.divider()
 
@@ -57,50 +60,38 @@ for label in labels_iso:
                          ["N.R", "Pas d'amorçage", "Amorçage", "Pas de montée en tension"], 
                          key=f"die_s_{label}")
     with col_d2:
-        t = st.text_input(f"Tension {label}", key=f"die_t_{label}", placeholder="V ou kV")
+        t = st.text_input(f"Tension {label}", key=f"die_t_{label}", placeholder="Ex: 1.5 kV")
     dielec_results[label] = s
 
 # --- LOGIQUE DE DIAGNOSTIC ---
+st.divider()
 if st.button("🚀 LANCER L'ANALYSE TECHNIQUE"):
     
-    # Détection des ruptures (Infinie)
-    rupture_l1 = cont_data["L1/N"] == float('inf') and cont_data["L1/L2"] == float('inf') [cite: 15]
-    rupture_l2 = cont_data["L2/N"] == float('inf') and cont_data["L2/L3"] == float('inf') [cite: 15]
-    rupture_l3 = cont_data["L3/N"] == float('inf') and cont_data["L3/L1"] == float('inf') [cite: 15]
-    rupture_neutre = cont_data["L1/N"] == float('inf') and cont_data["L2/N"] == float('inf') and cont_data["L3/N"] == float('inf') [cite: 31]
+    # Vérification des ruptures
+    rupture_neutre = cont_data["L1/N"] == float('inf') and cont_data["L2/N"] == float('inf') and cont_data["L3/N"] == float('inf')
     
-    # Identification du défaut d'isolement principal
+    # Analyse isolement (on cherche le défaut le plus bas)
     iso_filtre = {k: v for k, v in iso_results.items() if k != "N/T"}
     pire_couple = min(iso_filtre, key=iso_filtre.get)
     val_pire = iso_filtre[pire_couple]
     statut_dielec = dielec_results[pire_couple]
 
-    st.divider()
     st.subheader("📋 Rapport de Préconisation")
 
     if rupture_neutre:
         st.error("🚨 DÉFAUT : RUPTURE DE NEUTRE")
-        st.warning("⚠️ MODE CHOC INTERDIT : Risque de destruction des appareils clients.") [cite: 31]
-        st.info("🛠️ STRATÉGIE : Échométrie comparative.") [cite: 31]
-
-    elif rupture_l1 or rupture_l2 or rupture_l3:
-        phases_coupees = []
-        if rupture_l1: phases_coupees.append("L1")
-        if rupture_l2: phases_coupees.append("L2")
-        if rupture_l3: phases_coupees.append("L3")
-        st.error(f"🚨 DÉFAUT : RUPTURE DE PHASE ({', '.join(phases_coupees)})") [cite: 15]
+        st.warning("⚠️ MODE CHOC INTERDIT : Sécurité abonnés.")
+    elif any(v == float('inf') for v in cont_data.values()):
+        st.error("🚨 DÉFAUT : RUPTURE DE CONDUCTEUR")
         if statut_dielec == "Amorçage":
-            st.success("✅ Amorçage détecté : CHOC POSSIBLE AVEC BOUCLAGE (Neutre périphérique).") [cite: 15]
-        st.info("🛠️ STRATÉGIE : Échométrie directe.") [cite: 15]
-
+            st.success("✅ Amorçage détecté : Choc possible avec BOUCLAGE.")
     elif val_pire <= 10:
-        st.error(f"🚨 DÉFAUT : COURT-CIRCUIT FRANC sur {pire_couple} ({val_pire} Ω)") [cite: 49, 65]
-        st.warning("⚠️ CHOC INEFFICACE : Pas d'arc électrique.") [cite: 49, 65]
-        st.info("🛠️ STRATÉGIE : RD8000 (Fréquences Audibles).") [cite: 49, 65]
-
+        st.error(f"🚨 DÉFAUT : COURT-CIRCUIT FRANC ({pire_couple})")
+        st.warning("⚠️ CHOC INEFFICACE (Pas d'arc).")
+        st.info("🛠️ MÉTHODE : RD8000 (Fréquences Audibles).")
     else:
-        st.error(f"🚨 DÉFAUT : ISOLEMENT RÉSISTANT sur {pire_couple}") [cite: 49, 65, 66]
+        st.error(f"🚨 DÉFAUT : ISOLEMENT RÉSISTANT ({pire_couple})")
         if statut_dielec == "Amorçage":
-            st.success("✅ STRATÉGIE : Réflexion sur Arc (ARM) + Ondes de Choc.") [cite: 66]
+            st.success("✅ STRATÉGIE : ARM + Ondes de Choc.")
         else:
-            st.info("🛠️ STRATÉGIE : Échométrie directe (si < 150Ω) ou Diélectrique plus élevé.")
+            st.info("🛠️ STRATÉGIE : Échométrie directe (si < 150Ω) ou augmenter tension test.")
